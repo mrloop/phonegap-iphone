@@ -19,6 +19,8 @@
 
 }
 
+- (void) readFileAsBase64:(NSMutableArray*)arguments withDict:(NSMutableDictionary*)options;
+- (void) readFile:(NSMutableArray*)arguments withDict:(NSMutableDictionary*)options base64:(BOOL)base64;
 - (void) readFile:(NSMutableArray*)arguments withDict:(NSMutableDictionary*)options;
 - (void) write:(NSMutableArray*)arguments withDict:(NSMutableDictionary*)options;
 - (void) testFileExists:(NSMutableArray*)arguments withDict:(NSMutableDictionary*)options;

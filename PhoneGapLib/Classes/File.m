@@ -7,7 +7,7 @@
 
 
 #import "File.h"
-
+#import "NSData+Base64.h"
 
 @implementation File
 
@@ -45,34 +45,61 @@
 // system takes place, giving the user full ability to cancel or abort the transaction. The user is notified of any file selections, and can cancel these. 
 // No invocations to these APIs occur silently without user intervention.
 
+
+
+- (void) readFileAsBase64:(NSMutableArray*)arguments withDict:(NSMutableDictionary*)options
+{
+    [self readFile:arguments withDict:options base64:YES];
+}
+
 - (void) readFile:(NSMutableArray*)arguments withDict:(NSMutableDictionary*)options
 {
+    [self readFile:arguments withDict:options base64:NO];
+}
 
-	NSString* argPath = [arguments objectAtIndex:0];
+- (void) readFile:(NSMutableArray*)arguments withDict:(NSMutableDictionary*)options base64:(BOOL)base64
+{
+    NSString* argPath = [arguments objectAtIndex:0];
 	
 	// send back a load start event
 	NSString * jsCallBack = [NSString stringWithFormat:@"navigator.fileMgr.reader_onloadstart(\"%@\");",argPath];
 	
     [webView stringByEvaluatingJavaScriptFromString:jsCallBack];
 	
-	NSString *filePath = [ [ self appDocsPath ] stringByAppendingPathComponent:argPath];
-
-	NSFileHandle* file = [ NSFileHandle fileHandleForReadingAtPath:filePath];
-	
+    NSFileHandle* file;
+    
+    if(base64)
+    {
+        NSString *filePath = [ [ self appDocsPath ] stringByAppendingPathComponent:argPath];
+        file = [ NSFileHandle fileHandleForReadingAtPath:filePath];
+	}
+    else
+    {
+        NSError *err;
+        file = [ NSFileHandle fileHandleForReadingFromURL:[NSURL URLWithString:argPath] error:&err];
+    }
 	NSData* readData = [ file readDataToEndOfFile];
-	
 	[file closeFile];
-	 
-	NSString* pNStrBuff = [[NSString alloc] initWithBytes: [readData bytes] length: [readData length] encoding: NSUTF8StringEncoding];
-	
-	jsCallBack = [NSString stringWithFormat:@"navigator.fileMgr.reader_onloadend(\"%@\",\"%@\");",argPath, [ pNStrBuff stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding] ];
+    
+    
+    NSString* pNStrBuff;
+    if(base64)
+    {
+        pNStrBuff = [readData base64EncodedString];
+	}
+    else
+    {
+        pNStrBuff = [[[NSString alloc] initWithBytes: [readData bytes] length: [readData length] encoding: NSUTF8StringEncoding] stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+    }
+    
+	jsCallBack = [NSString stringWithFormat:@"navigator.fileMgr.reader_onloadend(\"%@\",\"%@\");",argPath, pNStrBuff];
     [webView stringByEvaluatingJavaScriptFromString:jsCallBack];
 	
 	// write back the result
-	jsCallBack = [NSString stringWithFormat:@"navigator.fileMgr.reader_onload(\"%@\",\"%@\");",argPath, [ pNStrBuff stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding] ];
+	jsCallBack = [NSString stringWithFormat:@"navigator.fileMgr.reader_onload(\"%@\",\"%@\");",argPath, pNStrBuff];
     [webView stringByEvaluatingJavaScriptFromString:jsCallBack];
-	
-	[ pNStrBuff release ];
+    
+    [ pNStrBuff release ];
 }
 
 
