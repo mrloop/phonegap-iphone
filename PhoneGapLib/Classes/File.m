@@ -68,16 +68,10 @@
 	
     NSFileHandle* file;
     
-    if(base64)
-    {
-        NSString *filePath = [ [ self appDocsPath ] stringByAppendingPathComponent:argPath];
-        file = [ NSFileHandle fileHandleForReadingAtPath:filePath];
-	}
-    else
-    {
-        NSError *err;
-        file = [ NSFileHandle fileHandleForReadingFromURL:[NSURL URLWithString:argPath] error:&err];
-    }
+
+    NSError *err;
+    file = [ NSFileHandle fileHandleForReadingFromURL:[NSURL URLWithString:argPath] error:&err];
+    
 	NSData* readData = [ file readDataToEndOfFile];
 	[file closeFile];
     
@@ -99,7 +93,10 @@
 	jsCallBack = [NSString stringWithFormat:@"navigator.fileMgr.reader_onload(\"%@\",\"%@\");",argPath, pNStrBuff];
     [webView stringByEvaluatingJavaScriptFromString:jsCallBack];
     
-    [ pNStrBuff release ];
+    if(!base64)
+    {
+        [ pNStrBuff release ];
+    }
 }
 
 
