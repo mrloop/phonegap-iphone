@@ -5,11 +5,12 @@
  * Copyright (c) 2005-2010, Nitobi Software Inc.
  */
 
+#import <Foundation/Foundation.h>
 
 @interface NSDictionary(com_phonegap_NSDictionary_Extension)
 
 - (bool) existsValue:(NSString*)expectedValue forKey:(NSString*)key;
-- (NSUInteger) integerValueForKey:(NSString*)key defaultValue:(NSUInteger)defaultValue withRange:(NSRange)range;
+- (NSInteger) integerValueForKey:(NSString*)key defaultValue:(NSInteger)defaultValue withRange:(NSRange)range;
 - (BOOL) typeValueForKey:(NSString *)key isArray:(BOOL*)bArray isNull:(BOOL*)bNull isNumber:(BOOL*) bNumber isString:(BOOL*)bString;
 - (BOOL) valueForKeyIsArray:(NSString *)key;
 - (BOOL) valueForKeyIsNull:(NSString *)key;

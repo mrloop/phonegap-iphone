@@ -7,5 +7,9 @@ docs
 PhoneGapLibInstaller.pkg
 /PhoneGapLib/javascripts/phonegap-uncompressed.js
 xcuserdata
-
 project.xcworkspace
+*.mode1v3
+*.pbxuser
+build
+/PhoneGap.framework/
+/pkg_error_log

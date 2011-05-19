@@ -13,6 +13,9 @@
 #import "InvokedUrlCommand.h"
 #import "Contact.h"
 
+#define SYMBOL_TO_NSSTRING_HELPER(x) @#x
+#define SYMBOL_TO_NSSTRING(x) SYMBOL_TO_NSSTRING_HELPER(x)
+
 @implementation PhoneGapDelegate
 
 @synthesize window;
@@ -22,12 +25,17 @@
 @synthesize commandObjects;
 @synthesize settings;
 @synthesize invokedURL;
+@synthesize loadFromString;
 
 - (id) init
 {
     self = [super init];
     if (self != nil) {
         commandObjects = [[NSMutableDictionary alloc] initWithCapacity:4];
+		// Turn on cookie support ( shared with our app only! )
+		NSHTTPCookieStorage *cookieStorage = [NSHTTPCookieStorage sharedHTTPCookieStorage]; 
+		[cookieStorage setCookieAcceptPolicy:NSHTTPCookieAcceptPolicyAlways];
+		
     }
     return self; 
 }
@@ -70,14 +78,26 @@ This only touches the filesystem once and stores the result in the class variabl
 static NSString *gapVersion;
 + (NSString*) phoneGapVersion
 {
+#ifdef PG_VERSION
+	gapVersion = SYMBOL_TO_NSSTRING(PG_VERSION);
+#else
+
 	if (gapVersion == nil) {
 		NSBundle *mainBundle = [NSBundle mainBundle];
 		NSString *filename = [mainBundle pathForResource:@"VERSION" ofType:nil];
 		// read from the filesystem and save in the variable
-		gapVersion = [ [ NSString stringWithContentsOfFile:filename encoding:NSUTF8StringEncoding error:NULL ] retain ];
+		// first, separate by new line
+		NSString* fileContents = [NSString stringWithContentsOfFile:filename encoding:NSUTF8StringEncoding error:NULL];
+		NSArray* all_lines = [fileContents componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+		NSString* first_line = [all_lines objectAtIndex:0];		
+		
+		gapVersion = [first_line retain];
 	}
+#endif
+	
 	return gapVersion;
 }
+
 + (NSString*) tmpFolderName
 {
 	return @"tmp";
@@ -90,10 +110,10 @@ static NSString *gapVersion;
 -(id) getCommandInstance:(NSString*)className
 {
     id obj = [commandObjects objectForKey:className];
-    if (!obj) {
+    if (!obj) 
+	{
         // attempt to load the settings for this command class
-        NSDictionary* classSettings;
-        classSettings = [settings objectForKey:className];
+        NSDictionary* classSettings = [settings objectForKey:className];
 
         if (classSettings)
             obj = [[NSClassFromString(className) alloc] initWithWebView:webView settings:classSettings];
@@ -109,9 +129,7 @@ static NSString *gapVersion;
 - (NSArray*) parseInterfaceOrientations:(NSArray*)orientations
 {
 	NSMutableArray* result = [[[NSMutableArray alloc] init] autorelease];
-	
-	
-	
+
 	if (orientations != nil) 
 	{
 		NSEnumerator* enumerator = [orientations objectEnumerator];
@@ -148,15 +166,13 @@ static NSString *gapVersion;
 	// read from UISupportedInterfaceOrientations (or UISupportedInterfaceOrientations~iPad, if its iPad) from -Info.plist
 	NSArray* supportedOrientations = [self parseInterfaceOrientations:
 											   [[[NSBundle mainBundle] infoDictionary] objectForKey:@"UISupportedInterfaceOrientations"]];
+	
     // read from PhoneGap.plist in the app bundle
 	NSDictionary *temp = [[self class] getBundlePlist:@"PhoneGap"];
     settings = [[NSDictionary alloc] initWithDictionary:temp];
 	
 	viewController = [ [ PhoneGapViewController alloc ] init ];
 	
-#if __IPHONE_OS_VERSION_MIN_REQUIRED < 30000
-    NSNumber *detectNumber         = [settings objectForKey:@"DetectPhoneNumber"];
-#endif
     NSNumber *useLocation          = [settings objectForKey:@"UseLocation"];
     NSString *topActivityIndicator = [settings objectForKey:@"TopActivityIndicator"];
 	
@@ -181,32 +197,6 @@ static NSString *gapVersion;
 	viewController.webView = webView;
 	[viewController.view addSubview:webView];
 	
-	// This has been moved from the webViewDidStartLoad because invokedURL never had been set
-	// from handleOpenURL - so I've changed this method from using didFinishLaunching to
-	// didFinishLaunchingWithOptions to capture the original url that launched the app
-	NSArray *keyArray = [launchOptions allKeys];
-	if ([launchOptions objectForKey:[keyArray objectAtIndex:0]]!=nil) {
-		NSURL *url = [launchOptions objectForKey:[keyArray objectAtIndex:0]];
-		invokedURL = url;
-		if (invokedURL != nil && [invokedURL isKindOfClass:[NSURL class]]) 
-		{
-			NSLog(@"URL = %@", [invokedURL absoluteURL]);
-			// Determine the URL used to invoke this application.
-			// Described in http://iphonedevelopertips.com/cocoa/launching-your-own-application-via-a-custom-url-scheme.html
-			if ([[invokedURL scheme] isEqualToString:[self appURLScheme]]) {
-				InvokedUrlCommand* iuc = [[InvokedUrlCommand newFromUrl:invokedURL] autorelease];
-
-				NSLog(@"Arguments: %@", iuc.arguments);
-
-				NSString *optionsString = [[NSString alloc] initWithFormat:@"var Invoke_params=%@;", [iuc.options JSONFragment]];
-
-				[webView stringByEvaluatingJavaScriptFromString:optionsString];
-
-				[optionsString release];
-			}
-		}
-	}
-	
 		
 	/*
 	 * Fire up the GPS Service right away as it takes a moment for data to come back.
@@ -218,7 +208,7 @@ static NSString *gapVersion;
 	/*
 	 * Create tmp directory. Files written here will be deleted when app terminates
 	 */
-	NSFileManager *fileMgr = [[NSFileManager alloc] init];
+	NSFileManager *fileMgr = [[[NSFileManager alloc] init] autorelease];
 	NSString *docsDir = [[self class] applicationDocumentsDirectory];
 	NSString* tmpDirectory = [docsDir stringByAppendingPathComponent: [[self class] tmpFolderName]];
 	
@@ -230,7 +220,6 @@ static NSString *gapVersion;
 			NSLog(@"Unable to create tmp directory");  // not much we can do it this fails
 		}
 	}
-	[fileMgr release];
 
 	webView.delegate = self;
 
@@ -243,32 +232,43 @@ static NSString *gapVersion;
 	
 	NSString* startPage = [[self class] startPage];
 	NSURL *appURL = [NSURL URLWithString:startPage];
+	NSString* loadErr = nil;
+	
 	if(![appURL scheme])
 	{
-		appURL = [NSURL fileURLWithPath:[[self class] pathForResource:startPage]];
+		NSString* startFilePath = [[self class] pathForResource:startPage];
+		if (startFilePath == nil)
+		{
+			loadErr = [NSString stringWithFormat:@"ERROR: Start Page at '%@/%@' was not found.", [[self class] wwwFolderName], startPage];
+			NSLog(@"%@", loadErr);
+			appURL = nil;
+		}
+		else {
+			appURL = [NSURL fileURLWithPath:startFilePath];
+		}
 	}
 	
-    NSURLRequest *appReq = [NSURLRequest requestWithURL:appURL cachePolicy:NSURLRequestUseProtocolCachePolicy timeoutInterval:20.0];
-	[webView loadRequest:appReq];
-
-#if __IPHONE_OS_VERSION_MIN_REQUIRED < 30000
-	webView.detectsPhoneNumbers = [detectNumber boolValue];
-#endif
+	if (!loadErr) {
+		NSURLRequest *appReq = [NSURLRequest requestWithURL:appURL cachePolicy:NSURLRequestUseProtocolCachePolicy timeoutInterval:20.0];
+		[webView loadRequest:appReq];
+	} else {
+		NSString* html = [NSString stringWithFormat:@"<html><body> %@ </body></html>", loadErr];
+		[webView loadHTMLString:html baseURL:nil];
+		self.loadFromString = YES;
+	}
 
 	/*
 	 * imageView - is the Default loading screen, it stay up until the app and UIWebView (WebKit) has completly loaded.
 	 * You can change this image by swapping out the Default.png file within the resource folder.
 	 */
-    UIImage* image;
-    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
-        image = [UIImage imageNamed:@"Default-Portrait~ipad"];
-    } else {
-        image = [UIImage imageNamed:@"Default"];
-    }
+  UIImage* image;
+  if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+      image = [UIImage imageNamed:@"Default-Portrait~ipad"];
+  } else {
+      image = [UIImage imageNamed:@"Default"];
+  }
 	imageView = [[UIImageView alloc] initWithImage:image];
-	[image release];
-	
-    imageView.tag = 1;
+  imageView.tag = 1;
 	[window addSubview:imageView];
 	[imageView release];
 
@@ -295,6 +295,10 @@ static NSString *gapVersion;
 
 	[window makeKeyAndVisible];
 	
+	if (self.loadFromString) {
+		imageView.hidden = YES;
+	}
+	
 	return YES;
 }
 
@@ -304,20 +308,7 @@ static NSString *gapVersion;
  */
 - (void)webViewDidStartLoad:(UIWebView *)theWebView 
 {
-    // Determine the URL used to invoke this application.
-    // Described in http://iphonedevelopertips.com/cocoa/launching-your-own-application-via-a-custom-url-scheme.html
-
-	// This fires before the handleOpenURL fires, so the invokedURL is empty
-  // if ([[invokedURL scheme] isEqualToString:[self appURLScheme]]) {
-  //    InvokedUrlCommand* iuc = [[InvokedUrlCommand newFromUrl:invokedURL] autorelease];
-  //     
-  //    NSLog(@"Arguments: %@", iuc.arguments);
-  //    NSString *optionsString = [[NSString alloc] initWithFormat:@"var Invoke_params=%@;", [iuc.options JSONFragment]];
-  //   
-  //    [webView stringByEvaluatingJavaScriptFromString:optionsString];
-  //    
-  //    [optionsString release];
-  //     }
+	
 }
 
 - (NSDictionary*) deviceProperties
@@ -336,19 +327,6 @@ static NSString *gapVersion;
 
 - (NSString*) appURLScheme
 {
-	// The info.plist contains this structure:
-	//<key>CFBundleURLTypes</key>
-	// <array>
-	//		<dict>
-	//			<key>CFBundleURLSchemes</key>
-	//			<array>
-	//				<string>yourscheme</string>
-	//			</array>
-	//			<key>CFBundleURLName</key>
-	//			<string>YourbundleURLName</string>
-	//		</dict>
-	// </array>
-
 	NSString* URLScheme = nil;
 	
     NSArray *URLTypes = [[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleURLTypes"];
@@ -367,12 +345,8 @@ static NSString *gapVersion;
 
 - (void) javascriptAlert:(NSString*)text
 {
-	NSString* jsString = nil;
-	jsString = [[NSString alloc] initWithFormat:@"alert('%@');", text];
+	NSString* jsString = [NSString stringWithFormat:@"alert('%@');", text];
 	[webView stringByEvaluatingJavaScriptFromString:jsString];
-
-	NSLog(@"%@", jsString);
-	[jsString release];
 }
 
 /**
@@ -394,11 +368,9 @@ static NSString *gapVersion;
 /**
  Called when the webview finishes loading.  This stops the activity view and closes the imageview
  */
-- (void)webViewDidFinishLoad:(UIWebView *)theWebView {
-	/*
-	 * Hide the Top Activity THROBER in the Battery Bar
-	 */
-	
+- (void)webViewDidFinishLoad:(UIWebView *)theWebView 
+{
+
     NSDictionary *deviceProperties = [ self deviceProperties];
     NSMutableString *result = [[NSMutableString alloc] initWithFormat:@"DeviceInfo = %@;", [deviceProperties JSONFragment]];
     
@@ -417,19 +389,23 @@ static NSString *gapVersion;
     [theWebView stringByEvaluatingJavaScriptFromString:result];
 	[result release];
 	
+	/*
+	 * Hide the Top Activity THROBBER in the Battery Bar
+	 */
 	[[UIApplication sharedApplication] setNetworkActivityIndicatorVisible:NO];
 	activityView.hidden = YES;	
 
 	imageView.hidden = YES;
 	
 	[window bringSubviewToFront:viewController.view];
-	webView = theWebView; 	
+	
+	[viewController didRotateFromInterfaceOrientation:[[UIDevice currentDevice] orientation]];
 }
 
 
 /**
  * Fail Loading With Error
- * Error - If the webpage failed to load display an error with the reson.
+ * Error - If the webpage failed to load display an error with the reason.
  *
  */
 - (void)webView:(UIWebView *)webView didFailLoadWithError:(NSError *)error {
@@ -439,7 +415,6 @@ static NSString *gapVersion;
 		alert([error localizedDescription]);
      */
 }
-
 
 /**
  * Start Loading Request
@@ -477,17 +452,28 @@ static NSString *gapVersion;
     }
 	else if ( [ [url scheme] isEqualToString:@"http"] || [ [url scheme] isEqualToString:@"https"] ) 
 	{
-		if(navigationType == UIWebViewNavigationTypeOther)
-		{
-			[[UIApplication sharedApplication] openURL:url];
-			return NO;
+		// iterate through settings externalDomains
+		// check for equality
+		NSEnumerator *e = [[settings objectForKey:@"ExternalHosts"] objectEnumerator];
+		id obj;
+
+		while (obj = [e nextObject]) {
+			if ([[url host] isEqualToString:obj]) {
+				return YES;
+			}
 		}
-		else 
-		{
-			return YES;
-		}
+
+		[[UIApplication sharedApplication] openURL:url];
+		return NO;
 	}
-    
+	/*
+	 *	If we loaded the HTML from a string, we let the app handle it
+	 */
+	else if (self.loadFromString == YES) 
+	{
+		self.loadFromString = NO;
+		return YES;
+	}
     /*
      * We don't have a PhoneGap or web/local request, load it in the main Safari browser.
 	 * pass this to the application to handle.  Could be a mailto:dude@duderanch.com or a tel:55555555 or sms:55555555 facetime:55555555
@@ -510,6 +496,7 @@ static NSString *gapVersion;
 	
 	// Fetch an instance of this class
 	PhoneGapCommand* obj = [self getCommandInstance:command.className];
+	BOOL retVal = YES;
 	
 	// construct the fill method name to ammend the second argument.
 	NSString* fullMethodName = [[NSString alloc] initWithFormat:@"%@:withDict:", command.methodName];
@@ -518,12 +505,12 @@ static NSString *gapVersion;
 	}
 	else {
 		// There's no method to call, so throw an error.
-		NSLog(@"Class method '%@' not defined in class '%@'", fullMethodName, command.className);
-		[NSException raise:NSInternalInconsistencyException format:@"Class method '%@' not defined against class '%@'.", fullMethodName, command.className];
+		NSLog(@"ERROR: Class method '%@' not defined in class '%@'", fullMethodName, command.className);
+		retVal = NO;
 	}
 	[fullMethodName release];
 	
-	return YES;
+	return retVal;
 }
 
 /*
@@ -531,7 +518,14 @@ static NSString *gapVersion;
 */
 - (void)applicationWillTerminate:(UIApplication *)application
 {
+
+	NSString* jsString = @"PhoneGap.onUnload();";
+	// Doing nothing with the callback string, just to make sure we are making a sync call
+	NSString* ret = [self.webView stringByEvaluatingJavaScriptFromString:jsString];
+	ret;
+	
 	NSLog(@"applicationWillTerminate");
+	
 	// empty the tmp directory
 	NSFileManager* fileMgr = [[NSFileManager alloc] init];
 	NSString* tmpPath = [[[self class] applicationDocumentsDirectory] stringByAppendingPathComponent: [[self class] tmpFolderName]];
@@ -539,10 +533,11 @@ static NSString *gapVersion;
 	if (![fileMgr removeItemAtPath: tmpPath error: &err]){
 		NSLog(@"Error removing tmp directory: %@", [err localizedDescription]); // could error because was already deleted
 	}
+	// clear NSTemporaryDirectory (TODO use this for photos as well - then no need for tmpFolderPath above)
+	if (![fileMgr removeItemAtPath: NSTemporaryDirectory() error:&err]) {
+		NSLog(@"Error removing file manager temporary directory: %@", [err localizedDescription]);
+	}
 	[fileMgr release];
-	// clean up any Contact objects
-	[[Contact class] releaseDefaults];
-	
 }
 
 /*
@@ -551,17 +546,8 @@ static NSString *gapVersion;
 */
 - (void)applicationWillResignActive:(UIApplication *)application
 {
-	NSLog(@"%@",@"applicationWillResignActive");
-	
-	NSString* jsString = 
-	@"(function(){"
-	"var e = document.createEvent('Events');"
-	"e.initEvent('pause');"
-	"document.dispatchEvent(e);"
-	"})();";
-	
-	[self.webView stringByEvaluatingJavaScriptFromString:jsString];
-	
+	//NSLog(@"%@",@"applicationWillResignActive");
+	[self.webView stringByEvaluatingJavaScriptFromString:@"PhoneGap.fireEvent('pause');"];
 }
 
 /*
@@ -571,23 +557,15 @@ static NSString *gapVersion;
 */
 - (void)applicationWillEnterForeground:(UIApplication *)application
 {
-	NSLog(@"%@",@"applicationWillEnterForeground");
-	
-	NSString* jsString = 
-	@"(function(){"
-	"var e = document.createEvent('Events');"
-	"e.initEvent('resume');"
-	"document.dispatchEvent(e);"
-	"})();";
-	
-	[self.webView stringByEvaluatingJavaScriptFromString:jsString];
+	//NSLog(@"%@",@"applicationWillEnterForeground");
+	[self.webView stringByEvaluatingJavaScriptFromString:@"PhoneGap.fireEvent('resume');"];
 
 }
 
 // This method is called to let your application know that it moved from the inactive to active state. 
 - (void)applicationDidBecomeActive:(UIApplication *)application
 {
-	NSLog(@"%@",@"applicationDidBecomeActive");
+	//NSLog(@"%@",@"applicationDidBecomeActive");
 }
 
 /*
@@ -596,30 +574,36 @@ static NSString *gapVersion;
  */
 - (void)applicationDidEnterBackground:(UIApplication *)application
 {
-	NSLog(@"%@",@"applicationDidEnterBackground");
+	//NSLog(@"%@",@"applicationDidEnterBackground");
 }
 
 
-
-- (BOOL)application:(UIApplication *)application handleOpenURL:(NSURL *)url
-{
-	NSLog(@"In handleOpenURL");
-	if (!url) { return NO; }
-	
-	NSLog(@"URL = %@", [url absoluteURL]);
-	invokedURL = url;
-	
-	return YES;
-}
+/*
+ Determine the URL passed to this application.
+ Described in http://iphonedevelopertips.com/cocoa/launching-your-own-application-via-a-custom-url-scheme.html
+*/
+//- (BOOL)application:(UIApplication *)application handleOpenURL:(NSURL *)url
+//{
+//	if (!url) { return NO; }
+//	if ([[url scheme] isEqualToString:[self appURLScheme]]) 
+//	{
+//		NSString *optionsStr = [NSString stringWithFormat:@"var Invoke_params=\"%@\";",[url absoluteURL] ];
+//		NSLog(@"optionsStr: %@", optionsStr);
+//		[webView stringByEvaluatingJavaScriptFromString:optionsStr];
+//		
+//		return YES;
+//	}
+//	return NO;
+//}
 
 - (void)dealloc
 {
-    [commandObjects release];
+    [PluginResult releaseStatus];
+	[commandObjects release];
 	[imageView release];
 	[viewController release];
     [activityView release];
 	[window release];
-	[invokedURL release];
 	
 	[super dealloc];
 }
