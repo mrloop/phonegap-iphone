@@ -62,8 +62,6 @@ typedef int FileSystemType;
 - (void) getFileMetadata:(NSMutableArray*)arguments withDict:(NSMutableDictionary*)options;
 - (void) readEntries:(NSMutableArray*)arguments withDict:(NSMutableDictionary*)options;
 
-- (void) readFileAsBase64:(NSMutableArray*)arguments withDict:(NSMutableDictionary*)options;
-- (void) readFile:(NSMutableArray*)arguments withDict:(NSMutableDictionary*)options base64:(BOOL)base64;
 - (void) readFile:(NSMutableArray*)arguments withDict:(NSMutableDictionary*)options;
 - (void) readAsDataURL:(NSMutableArray*)arguments withDict:(NSMutableDictionary*)options;
 -(NSString*) getMimeTypeFromPath: (NSString*) fullPath;
